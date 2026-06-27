@@ -1,0 +1,60 @@
+services:
+  # ─── Databases ────────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: aegisec-postgres
+    environment:
+      POSTGRES_DB: aegisec
+      POSTGRES_USER: aegisec
+      POSTGRES_PASSWORD: aegisec2025
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aegisec"]
+      interval: 10s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: aegisec-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+  # ─── Backend ──────────────────────────────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: aegisec-backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    ports:
+      - "8443:8443"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/aegisec
+      SPRING_DATASOURCE_USERNAME: aegisec
+      SPRING_DATASOURCE_PASSWORD: aegisec2025
+    volumes:
+      - ./certs:/app/certs:ro
+
+  # ─── Dashboard ────────────────────────────────────────────────────────────────
+  dashboard:
+    build:
+      context: ./dashboard
+      dockerfile: Dockerfile
+    container_name: aegisec-dashboard
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:
+  redis_data:

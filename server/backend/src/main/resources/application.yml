@@ -1,0 +1,46 @@
+server:
+  port: 8443
+  ssl:
+    enabled: true
+    key-store: classpath:keystore/server.p12
+    key-store-password: aegisec2025
+    key-store-type: PKCS12
+    key-alias: server
+    # mTLS: require client certificate
+    client-auth: need
+    trust-store: classpath:keystore/truststore.p12
+    trust-store-password: aegisec2025
+    trust-store-type: PKCS12
+
+spring:
+  application:
+    name: aegisec-backend
+
+  datasource:
+    url: jdbc:postgresql://localhost:5432/aegisec
+    username: aegisec
+    password: aegisec2025
+    driver-class-name: org.postgresql.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: true
+
+  # WebSocket does not support reactive — bridging with Spring MVC for STOMP
+  main:
+    web-application-type: servlet
+
+aegisec:
+  jwt:
+    secret: "aegisec-super-secret-jwt-key-change-in-prod-!!2025!!"
+    expiration-ms: 86400000  # 24 hours
+
+logging:
+  level:
+    com.aegisec: DEBUG
+    org.springframework.security: WARN

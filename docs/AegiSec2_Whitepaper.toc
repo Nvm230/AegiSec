@@ -1,0 +1,13 @@
+\babel@toc {spanish}{}\relax 
+\contentsline {section}{\numberline {1}Introducción}{2}{section.1}%
+\contentsline {section}{\numberline {2}Arquitectura Global del Sistema}{2}{section.2}%
+\contentsline {section}{\numberline {3}El Agente de Monitoreo (Rust)}{2}{section.3}%
+\contentsline {subsection}{\numberline {3.1}Sistema Sensor (\texttt {sensor})}{2}{subsection.3.1}%
+\contentsline {subsection}{\numberline {3.2}Dynamic Risk Scoring (DRS) Engine (\texttt {drs.rs})}{2}{subsection.3.2}%
+\contentsline {subsection}{\numberline {3.3}Módulo Aislador / Contención Activa (\texttt {isolator.rs})}{3}{subsection.3.3}%
+\contentsline {subsection}{\numberline {3.4}Telemetría (\texttt {telemetry.rs})}{3}{subsection.3.4}%
+\contentsline {section}{\numberline {4}Backend Central (Java 21 / Spring Boot)}{3}{section.4}%
+\contentsline {section}{\numberline {5}Dashboard Frontend (React)}{4}{section.5}%
+\contentsline {section}{\numberline {6}Landing Page Promocional Web}{4}{section.6}%
+\contentsline {section}{\numberline {7}Despliegue e Infraestructura}{4}{section.7}%
+\contentsline {section}{\numberline {8}Conclusión}{4}{section.8}%

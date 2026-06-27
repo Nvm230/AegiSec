@@ -1,0 +1,126 @@
+\documentclass[12pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[spanish]{babel}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{listings}
+\usepackage{color}
+\usepackage{geometry}
+\geometry{a4paper, margin=1in}
+
+% Code snippet styles
+\definecolor{codegreen}{rgb}{0,0.6,0}
+\definecolor{codegray}{rgb}{0.5,0.5,0.5}
+\definecolor{codepurple}{rgb}{0.58,0,0.82}
+\definecolor{backcolour}{rgb}{0.95,0.95,0.92}
+
+\lstdefinestyle{mystyle}{
+    backgroundcolor=\color{backcolour},   
+    commentstyle=\color{codegreen},
+    keywordstyle=\color{magenta},
+    numberstyle=\tiny\color{codegray},
+    stringstyle=\color{codepurple},
+    basicstyle=\ttfamily\footnotesize,
+    breakatwhitespace=false,         
+    breaklines=true,                 
+    captionpos=b,                    
+    keepspaces=true,                 
+    numbers=left,                    
+    numbersep=5pt,                  
+    showspaces=false,                
+    showstringspaces=false,
+    showtabs=false,                  
+    tabsize=2
+}
+\lstset{style=mystyle}
+
+\title{\textbf{AegiSec2: Plataforma Avanzada de Telemetría de Seguridad y Contención Activa}}
+\author{Documentación de Arquitectura Técnica}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+AegiSec2 es una plataforma de ciberseguridad de próxima generación diseñada para proporcionar visibilidad profunda y respuestas automatizadas frente a amenazas en entornos Linux. El sistema se compone de un agente de monitoreo de ultra-bajo nivel desarrollado en Rust, un backend reactivo en Java 21 (Spring WebFlux) y un Dashboard en React. Este documento detalla la arquitectura, heurísticas de detección, mecánicas de contención en el kernel y el flujo asíncrono de la plataforma completa.
+\end{abstract}
+
+\tableofcontents
+\newpage
+
+\section{Introducción}
+AegiSec2 trasciende el concepto de monitoreo pasivo tradicional para convertirse en un sistema de \textbf{Defensa Activa}. Utilizando tecnologías modernas y fuertemente tipadas, la plataforma está diseñada para la ingesta masiva de eventos en tiempo real, evaluando el riesgo de entidades de manera dinámica y bloqueando intrusiones en milisegundos sin intervención humana.
+
+\section{Arquitectura Global del Sistema}
+El repositorio AegiSec2 opera bajo una arquitectura distribuida Cliente-Servidor:
+\begin{itemize}
+    \item \textbf{Agente (\texttt{/agent}):} Daemon en Rust instalado en los nodos.
+    \item \textbf{Backend (\texttt{/server/backend}):} Servidor API y WebSocket en Java 21.
+    \item \textbf{Dashboard (\texttt{/server/dashboard}):} SPA en React para los administradores.
+    \item \textbf{Landing Page (\texttt{/landing}):} Interfaz promocional web preparada para despliegue Cloud (AWS).
+\end{itemize}
+
+\section{El Agente de Monitoreo (Rust)}
+Desarrollado en Rust, el agente prioriza la seguridad de la memoria y la velocidad extrema. Utiliza el runtime asíncrono \texttt{tokio} para procesar miles de eventos del sistema operativo sin bloquear los hilos.
+
+\subsection{Sistema Sensor (\texttt{sensor})}
+El agente no hace "polling" ineficiente; intercepta eventos a nivel del kernel y del sistema de archivos:
+\begin{itemize}
+    \item \textbf{procfs \& nix:} Lectura de memoria, estado de procesos y syscalls mediante el sistema de archivos proc virtual.
+    \item \textbf{inotify:} Subsistema de Linux para el monitoreo íntegro de modificaciones en archivos críticos (FIM).
+\end{itemize}
+
+\subsection{Dynamic Risk Scoring (DRS) Engine (\texttt{drs.rs})}
+El DRS es el motor heurístico del agente. Mantiene un \texttt{HashMap} protegido por un \texttt{Mutex} asíncrono que asocia Entidades (UIDs o IPs) con un \textit{Risk Profile} (Perfil de Riesgo). 
+
+El motor implementa un modelo de ponderación conductual (Behavioral Weighting) basado en los siguientes vectores de análisis:
+\begin{enumerate}
+    \item \textbf{[H-01 / H-05] Análisis de Linaje de Procesos (Web \& Reverse Shells):} El motor audita la relación jerárquica de los procesos. Si detecta anomalías severas, como un intérprete web (\texttt{apache, nginx, php}) o de scripting (\texttt{python, perl}) instanciando procesos interactivos (\texttt{bash, sh}) junto a syscalls de red, el sistema eleva de inmediato el perfil de riesgo a nivel crítico, disparando protocolos de contención automatizada.
+    \item \textbf{[H-02] Análisis de Densidad Temporal (Enumeration Velocity):} En lugar de bloquear la ejecución aislada de binarios administrativos (\texttt{whoami, netstat, id}), el motor rastrea la frecuencia temporal. Si identifica la invocación de múltiples herramientas de reconocimiento bajo el mismo \texttt{UID} dentro de una ventana de tiempo reducida, clasifica el comportamiento como un patrón de escaneo hostil, elevando proporcionalmente la puntuación de riesgo.
+    \item \textbf{[H-00 / H-04] Firmas de Alta Fidelidad y Red:} Identificación determinista de artefactos ofensivos conocidos (\texttt{nc, msfvenom, socat}) e intentos de conexión a puertos C2 anómalos, aportando peso severo a la evaluación global de la entidad.
+\end{enumerate}
+
+\textbf{Decaimiento Matemático Asíncrono (Decay Loop):} Para mitigar la saturación por falsos positivos, un \textit{task} asíncrono en \texttt{tokio} aplica una función matemática de decaimiento cada 60 segundos. Esto representa el enfriamiento natural del contexto: si una anomalía aislada no escala o no presenta continuidad temporal, el perfil de riesgo de la entidad retorna gradualmente a su línea base operativa.
+
+\subsection{Módulo Aislador / Contención Activa (\texttt{isolator.rs})}
+Cuando el DRS supera el umbral crítico, el \texttt{Isolator} bloquea el ataque:
+\begin{itemize}
+    \item \textbf{Terminación Quirúrgica (\texttt{kill\_tree}):} Explora el sistema de archivos proc (específicamente la ruta \texttt{/proc/<pid>/stat}) mediante un recorrido \textit{breadth-first} para identificar a todos los descendientes del proceso atacante. Para prevenir la evasión (procesos huérfanos), envía una señal \texttt{SIGSTOP} para congelar el árbol entero, y luego envía \texttt{SIGKILL} desde las hojas hasta la raíz.
+    \item \textbf{Bloqueo de Red (C2 Cutoff):} Interrumpe las conexiones Command \& Control (C2) usando \texttt{nftables}. Si \texttt{nftables} no está disponible, realiza un \textit{fallback} automático a \texttt{iptables}, estableciendo reglas de descarte de tráfico (DROP) para el UID comprometido o la IP de destino en la cadena \texttt{OUTPUT}.
+\end{itemize}
+
+\subsection{Telemetría (\texttt{telemetry.rs})}
+El agente garantiza la entrega de alertas bajo carga extrema:
+\begin{itemize}
+    \item \textbf{Cola Prioritaria (Priority Queue):} Eventos de contención y bloqueos saltan los búferes y se transmiten vía un HTTP POST inmediato al servidor.
+    \item \textbf{Cola Normal (Batch Queue):} Eventos de baja prioridad se almacenan en un lote que se vacía cada $N$ segundos o cuando alcanza 50 elementos.
+    \item \textbf{mTLS (Mutual TLS):} A través de \texttt{reqwest} y \texttt{rustls}, los agentes y el servidor autentican bidireccionalmente sus certificados criptográficos para evitar la inyección de eventos por agentes no autorizados (Zero-Trust).
+\end{itemize}
+
+\section{Backend Central (Java 21 / Spring Boot)}
+El backend coordina la lógica de negocio, almacenando la historia forense y enviando información a la interfaz web.
+\begin{itemize}
+    \item \textbf{Núcleo Reactivo:} Basado en Project Reactor (\texttt{spring-boot-starter-webflux}), procesa las solicitudes I/O de los agentes sin bloquear hilos del SO, permitiendo escalar a miles de agentes simultáneamente.
+    \item \textbf{WebSockets y STOMP:} Para lograr la ansiada "actualización sin recargas", el servidor empuja (push) las alertas en el instante que llegan desde el agente al Dashboard vía WebSockets.
+    \item \textbf{Seguridad y Persistencia:} Implementa Spring Security con validación de JSON Web Tokens (JWT) sin estado. Los perfiles de riesgo y la auditoría forense se guardan permanentemente en una base de datos relacional \textbf{PostgreSQL} vía Spring Data JPA.
+\end{itemize}
+
+\section{Dashboard Frontend (React)}
+El Dashboard proporciona el "Single Pane of Glass" para los analistas de seguridad SOC.
+\begin{itemize}
+    \item Construido en \textbf{React} con \textbf{TypeScript} utilizando \textbf{Vite} como empaquetador para una experiencia de desarrollo veloz.
+    \item Interfaz renderizada con \textbf{TailwindCSS}.
+    \item Suscrito en tiempo real a los tópicos de WebSocket, visualizando el riesgo de las máquinas y gráficos en vivo a medida que los ataques son repelidos por el motor DRS.
+\end{itemize}
+
+\section{Landing Page Promocional Web}
+El repositorio también alberga el módulo \texttt{/landing}, un proyecto Vite independiente creado específicamente para marketing o despliegues Cloud (como AWS S3). Cuenta con diseño \textit{Premium Dark Mode}, animaciones CSS sutiles y prácticas SEO integradas, informando sobre las capacidades del sistema a los clientes.
+
+\section{Despliegue e Infraestructura}
+Todo el entorno servidor está \textit{dockerizado}. El archivo \texttt{docker-compose.yml} coordina la creación de redes aisladas para PostgreSQL, el contenedor del Backend de Spring Boot y el contenedor del Dashboard de React, permitiendo levantar un entorno corporativo completo con el comando \texttt{docker-compose up -d}.
+
+\section{Conclusión}
+La sinergia entre el bajo nivel de Rust en el espacio del kernel de Linux y la escalabilidad asíncrona de Java en el backend, convierten a AegiSec2 en una herramienta inmensamente poderosa y reactiva, preparada para auditar infraestructuras en tiempo real bajo los estándares de la industria moderna.
+
+\end{document}

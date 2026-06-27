@@ -1,0 +1,39 @@
+[Unit]
+Description=AegiSec Agent v2.0 — Real-time Host Security Monitor
+Documentation=https://github.com/aegisec/agent
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/aegisec-agent
+Restart=always
+RestartSec=5s
+StartLimitInterval=60s
+StartLimitBurst=5
+
+# Run as root — required for Netlink proc connector, inotify, iptables
+User=root
+Group=root
+
+# Environment
+Environment=RUST_LOG=aegisec_agent=info
+EnvironmentFile=-/etc/aegisec/agent.env
+
+# Resource limits (spec: ≤2% CPU, ≤50MB RAM)
+CPUQuota=2%
+MemoryMax=50M
+MemorySwapMax=0
+
+# Security hardening (still root but limit blast radius)
+NoNewPrivileges=no
+ProtectSystem=no
+PrivateTmp=no
+ReadWritePaths=/etc/aegisec /var/log/aegisec
+
+# I/O priority
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+
+[Install]
+WantedBy=multi-user.target
